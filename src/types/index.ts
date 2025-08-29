@@ -13,6 +13,7 @@ export interface InvoiceDrug {
     formulation: string
     strength: string
     payer: string
+    qty: number
 }
 
 export interface Discrepancy {

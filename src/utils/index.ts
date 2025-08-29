@@ -5,25 +5,25 @@ export function calculatePriceDifference(invoicePrice: number, referencePrice: n
     if (typeof invoicePrice !== 'number' || typeof referencePrice !== 'number') {
         return 0
     }
-    
+
     // Handle edge cases
     if (referencePrice === 0) {
         return invoicePrice > 0 ? 100 : 0
     }
-    
+
     if (invoicePrice === 0 && referencePrice === 0) {
         return 0
     }
-    
+
     // Calculate percentage difference
     const difference = invoicePrice - referencePrice
     const percentage = (difference / referencePrice) * 100
-    
+
     // Handle extreme values
     if (!isFinite(percentage)) {
         return invoicePrice > referencePrice ? 100 : -100
     }
-    
+
     return percentage
 }
 
@@ -34,7 +34,7 @@ export function determineSeverity(percentage: number): "low" | "medium" | "high"
 }
 
 export function findColumnIndex(headers: string[], possibleNames: readonly string[]): number {
-    return headers.findIndex(h => 
+    return headers.findIndex(h =>
         possibleNames.some(name => h.toLowerCase().trim().includes(name.toLowerCase().trim()))
     )
 }
@@ -53,10 +53,10 @@ export function generateId(prefix: string, index: number): string {
 
 export function validateExcelHeaders(headers: string[]): boolean {
     const requiredColumns = [
-        'drug', 'name', 'price', 'cost', 'formulation', 'form', 
-        'strength', 'dose', 'payer', 'insurance'
+        'drugname', 'drug name', 'unit price', 'unitprice', 'formulation', 'form',
+        'strength', 'dose', 'payer', 'insurance', 'qty', 'quantity'
     ]
-    
+
     const headerText = headers.join(' ').toLowerCase()
     return requiredColumns.some(col => headerText.includes(col))
 }
@@ -65,20 +65,20 @@ export function parsePrice(priceString: string | number | undefined): number {
     if (typeof priceString === 'number') {
         return priceString
     }
-    
+
     if (!priceString) {
         return 0
     }
-    
+
     // Convert to string and remove common currency symbols and formatting
     const cleanPrice = priceString.toString()
         .replace(/[$€£¥,]/g, '')  // Remove currency symbols and commas
         .replace(/\s+/g, '')      // Remove whitespace
         .trim()
-    
+
     // Parse the cleaned string
     const parsed = parseFloat(cleanPrice)
-    
+
     // Return 0 if parsing failed, otherwise return the parsed value
     return isNaN(parsed) ? 0 : parsed
 }

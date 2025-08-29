@@ -1,23 +1,23 @@
 import * as XLSX from 'xlsx'
-import { 
-  ReferenceDrug, 
-  InvoiceDrug, 
-  Discrepancy, 
-  ValidationResult 
+import {
+  ReferenceDrug,
+  InvoiceDrug,
+  Discrepancy,
+  ValidationResult
 } from '../types'
-import { 
-  MOCKAPI_URL, 
-  PRICE_THRESHOLD, 
-  SEVERITY_LEVELS, 
+import {
+  MOCKAPI_URL,
+  PRICE_THRESHOLD,
+  SEVERITY_LEVELS,
   DISCREPANCY_TYPES,
-  EXCEL_COLUMNS 
+  EXCEL_COLUMNS
 } from '../constants'
-import { 
-  calculatePriceDifference, 
-  determineSeverity, 
-  findColumnIndex, 
-  formatCurrency, 
-  formatPercentage, 
+import {
+  calculatePriceDifference,
+  determineSeverity,
+  findColumnIndex,
+  formatCurrency,
+  formatPercentage,
   generateId,
   parsePrice
 } from '../utils'
@@ -26,14 +26,14 @@ export async function fetchReferenceDrugs(): Promise<ReferenceDrug[]> {
   try {
     console.log("Fetching reference drugs from:", MOCKAPI_URL)
     const response = await fetch(MOCKAPI_URL)
-    
+
     if (!response.ok) {
       throw new Error(`Failed to fetch reference data: ${response.status}`)
     }
-    
+
     const apiData = await response.json() as any[]
     console.log("Raw API data:", apiData)
-    
+
     // Map API response to our interface structure
     const data: ReferenceDrug[] = apiData.map((item: any) => ({
       id: item.id.toString(),
@@ -43,7 +43,7 @@ export async function fetchReferenceDrugs(): Promise<ReferenceDrug[]> {
       strength: item.strength,
       payer: item.payer
     }))
-    
+
     console.log("Mapped reference drugs:", data)
     return data
   } catch (error) {
@@ -63,9 +63,9 @@ export function parseExcelData(buffer: Buffer): InvoiceDrug[] {
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
     console.log("Excel data:", jsonData)
 
-    // Parse the data (assuming first row is headers)
-    const headers = jsonData[0] as string[]
-    const rows = jsonData.slice(1) as any[][]
+    // Parse the data (using third row as headers - index 2)
+    const headers = jsonData[2] as string[]
+    const rows = jsonData.slice(3) as any[][] // Start from row 4 (index 3)
 
     // Find column indices
     const drugNameIndex = findColumnIndex(headers, EXCEL_COLUMNS.DRUG_NAME)
@@ -73,6 +73,7 @@ export function parseExcelData(buffer: Buffer): InvoiceDrug[] {
     const formulationIndex = findColumnIndex(headers, EXCEL_COLUMNS.FORMULATION)
     const strengthIndex = findColumnIndex(headers, EXCEL_COLUMNS.STRENGTH)
     const payerIndex = findColumnIndex(headers, EXCEL_COLUMNS.PAYER)
+    const qtyIndex = findColumnIndex(headers, EXCEL_COLUMNS.QTY)
 
     console.log("Column mapping:")
     console.log("  Headers:", headers)
@@ -81,10 +82,11 @@ export function parseExcelData(buffer: Buffer): InvoiceDrug[] {
     console.log("  Formulation Index:", formulationIndex, "->", headers[formulationIndex])
     console.log("  Strength Index:", strengthIndex, "->", headers[strengthIndex])
     console.log("  Payer Index:", payerIndex, "->", headers[payerIndex])
+    console.log("  Qty Index:", qtyIndex, "->", headers[qtyIndex])
 
     // Validate that all required columns were found
-    if (drugNameIndex === -1 || unitPriceIndex === -1 || formulationIndex === -1 || 
-        strengthIndex === -1 || payerIndex === -1) {
+    if (drugNameIndex === -1 || unitPriceIndex === -1 || formulationIndex === -1 ||
+      strengthIndex === -1 || payerIndex === -1) {
       throw new Error('Required columns not found in Excel file')
     }
 
@@ -96,6 +98,7 @@ export function parseExcelData(buffer: Buffer): InvoiceDrug[] {
         const formulation = (row[formulationIndex]?.toString() || '').trim()
         const strength = (row[strengthIndex]?.toString() || '').trim()
         const payer = (row[payerIndex]?.toString() || '').trim()
+        const qty = qtyIndex !== -1 ? parseInt(row[qtyIndex]?.toString() || '0') || 0 : 0
 
         return {
           drugName,
@@ -103,6 +106,7 @@ export function parseExcelData(buffer: Buffer): InvoiceDrug[] {
           formulation,
           strength,
           payer,
+          qty,
         }
       })
       .filter(drug => drug.drugName && drug.drugName.trim() !== '') // Filter out empty drug names
@@ -145,22 +149,17 @@ export async function validateInvoice(buffer: Buffer): Promise<ValidationResult>
     // Check Unit Price discrepancy and calculate overcharge
     const pricePercentage = calculatePriceDifference(invoiceDrug.unitPrice, referenceDrug.unitPrice)
     const priceDifference = invoiceDrug.unitPrice - referenceDrug.unitPrice
-    
+
     console.log(`  Price: Invoice $${invoiceDrug.unitPrice} vs Reference $${referenceDrug.unitPrice}`)
+    console.log(`  Qty: ${invoiceDrug.qty}`)
     console.log(`  Difference: $${priceDifference.toFixed(2)} (${pricePercentage.toFixed(2)}%)`)
     console.log(`  Threshold: ${PRICE_THRESHOLD}% | Exceeds: ${pricePercentage > PRICE_THRESHOLD}`)
-    
-    // Always accumulate total overcharge (even for small differences)
-    if (priceDifference > 0) {
-      totalOvercharge += priceDifference
-      console.log(`  Added to total overcharge: $${priceDifference.toFixed(2)}`)
-    }
-    
-    // Only count as discrepancy if it exceeds threshold
+
+    // Only count as discrepancy if it exceeds threshold (10%)
     if (pricePercentage > PRICE_THRESHOLD) {
       priceDiscrepancies++
       console.log(`  COUNTED AS PRICE DISCREPANCY!`)
-      
+
       discrepancies.push({
         id: generateId('price', index),
         drugName: invoiceDrug.drugName,
@@ -172,6 +171,13 @@ export async function validateInvoice(buffer: Buffer): Promise<ValidationResult>
         overchargePercentage: Math.round(pricePercentage * 10) / 10,
         overchargeAmount: formatCurrency(priceDifference),
       })
+    }
+
+    // Always accumulate total overcharge for reporting
+    if (priceDifference > 0) {
+      const totalPriceDifference = priceDifference * invoiceDrug.qty
+      totalOvercharge += totalPriceDifference
+      console.log(`  Added to total overcharge: $${totalPriceDifference.toFixed(2)}`)
     }
 
     // Check Formulation discrepancy
@@ -241,58 +247,106 @@ function getMockReferenceDrugs(): ReferenceDrug[] {
     {
       id: "1",
       drugName: "Amoxicillin",
-      unitPrice: 0.45,
+      unitPrice: 0.50,
       formulation: "Capsule",
-      strength: "500mg",
-      payer: "Medicare",
+      strength: "500 mg",
+      payer: "medicaid",
     },
     {
       id: "2",
-      drugName: "Insulin Glargine",
-      unitPrice: 105.00,
-      formulation: "Solution",
-      strength: "100 units/ml",
-      payer: "Medicare",
+      drugName: "Lisinopril",
+      unitPrice: 0.35,
+      formulation: "Tablet",
+      strength: "10 mg",
+      payer: "medicare",
     },
     {
       id: "3",
-      drugName: "Metformin",
-      unitPrice: 0.15,
-      formulation: "Tablet",
-      strength: "500mg",
-      payer: "Medicare",
+      drugName: "Albuterol Sulfate",
+      unitPrice: 45.00,
+      formulation: "Inhaler (MDI)",
+      strength: "90 mcg/actuation",
+      payer: "medicaid",
     },
     {
       id: "4",
-      drugName: "Omeprazole",
-      unitPrice: 0.30,
-      formulation: "Capsule",
-      strength: "20mg",
-      payer: "Medicare",
+      drugName: "Insulin Glargine",
+      unitPrice: 120.00,
+      formulation: "Solution (vial, 10mL)",
+      strength: "100 units/mL",
+      payer: "medicaid",
     },
     {
       id: "5",
-      drugName: "Erythropoietin",
-      unitPrice: 45.00,
-      formulation: "Solution (vial)",
-      strength: "2000 units",
-      payer: "Medicare",
+      drugName: "Hydrocodone/APAP",
+      unitPrice: 1.00,
+      formulation: "Tablet (C-II)",
+      strength: "5 mg / 325 mg",
+      payer: "medicaid",
     },
     {
       id: "6",
-      drugName: "Loratadine",
-      unitPrice: 0.15,
-      formulation: "Tablet",
-      strength: "10 mg",
-      payer: "Medicare",
+      drugName: "Metformin",
+      unitPrice: 0.20,
+      formulation: "Tablet (ER)",
+      strength: "500 mg",
+      payer: "medicare",
     },
     {
       id: "7",
-      drugName: "Lisinopril",
+      drugName: "Simvastatin",
+      unitPrice: 0.30,
+      formulation: "Tablet",
+      strength: "20 mg",
+      payer: "medicare",
+    },
+    {
+      id: "8",
+      drugName: "Omeprazole",
+      unitPrice: 0.40,
+      formulation: "Capsule (DR)",
+      strength: "20 mg",
+      payer: "medicare",
+    },
+    {
+      id: "9",
+      drugName: "Loratadine",
       unitPrice: 0.25,
       formulation: "Tablet",
-      strength: "10mg",
-      payer: "Medicaid",
+      strength: "10 g",
+      payer: "medicare",
+    },
+    {
+      id: "10",
+      drugName: "Prednisone",
+      unitPrice: 0.50,
+      formulation: "Tablet",
+      strength: "10 mg",
+      payer: "medicare",
+    },
+    {
+      id: "11",
+      drugName: "Azithromycin",
+      unitPrice: 1.25,
+      formulation: "Tablet (Z-Pack)",
+      strength: "250 mg",
+      payer: "medicare",
+    },
+    {
+      id: "12",
+      drugName: "Clonazepam",
+      unitPrice: 0.75,
+      formulation: "Tablet (C-IV)",
+      strength: "0.5 mg",
+      payer: "medicaid",
+    },
+    {
+      id: "13",
+      drugName: "Erythropoietin",
+      unitPrice: 200.00,
+      formulation: "Capsule",
+      strength: "10000 IU/ 1.0ml",
+      payer: "medicaid",
     },
   ]
 }
