@@ -40,6 +40,7 @@ export interface ValidationResult {
     strengthErrors: number
     payerMismatches: number
     totalOvercharge: number
+    apiError?: string | null
 }
 
 export interface ApiResponse<T> {

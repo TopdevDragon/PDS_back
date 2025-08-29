@@ -5,12 +5,19 @@ import morgan from 'morgan'
 import dotenv from 'dotenv'
 import { invoiceRoutes } from './routes/invoice'
 import { healthRoutes } from './routes/health'
+import path from 'path'
 
-// Load environment variables
-dotenv.config()
+// Load environment variables from the project root
+dotenv.config({ path: path.resolve(__dirname, '../.env') })
+
+// Debug: Log environment variables
+console.log('🔧 Environment Variables:')
+console.log('  PORT:', process.env.PORT)
+console.log('  NODE_ENV:', process.env.NODE_ENV)
+console.log('  FRONTEND_URL:', process.env.FRONTEND_URL)
+console.log('  MOCKAPI_URL:', process.env.MOCKAPI_URL)
 
 const app = express()
-const PORT = process.env.PORT || 3001
 
 // Middleware
 app.use(helmet())
@@ -45,10 +52,15 @@ app.use('*', (req, res) => {
   })
 })
 
-app.listen(PORT, () => {
-  console.log(`🚀 PDS Backend server running on port ${PORT}`)
-  console.log(`📊 Health check: http://localhost:${PORT}/api/health`)
-  console.log(`🔍 Invoice validation: http://localhost:${PORT}/api/invoice/validate`)
-})
+// Start server
+const PORT = process.env.PORT || 3001
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`)
+    console.log(`📊 Health check: http://localhost:${PORT}/api/health`)
+    console.log(`📋 Invoice validation: http://localhost:${PORT}/api/invoice/validate`)
+  })
+}
 
 export default app

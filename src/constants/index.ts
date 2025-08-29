@@ -1,5 +1,3 @@
-export const MOCKAPI_URL = "https://685daed17b57aebd2af6da54.mockapi.io/api/v1/drugs"
-
 export const PRICE_THRESHOLD = 10 // 10% overcharge threshold
 
 export const SEVERITY_LEVELS = {
